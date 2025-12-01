@@ -1,0 +1,535 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// NextAuth Models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// User Model
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  password      String?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  accounts      Account[]
+  sessions      Session[]
+  subscription  Subscription?
+  focusSessions FocusSession[]
+  garden        Garden?
+  plants        UserPlant[]
+  tasks         Task[]
+  projects      Project[]
+  goals         Goal[]
+  achievements  UserAchievement[]
+  stats         UserStats?
+  settings      UserSettings?
+  streak        UserStreak?
+}
+
+// Subscription
+model Subscription {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  stripeCustomerId     String?  @unique
+  stripeSubscriptionId String?  @unique
+  stripePriceId        String?
+  stripeCurrentPeriodEnd DateTime?
+
+  plan                 SubscriptionPlan @default(FREE)
+  status               SubscriptionStatus @default(ACTIVE)
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+enum SubscriptionPlan {
+  FREE
+  PREMIUM
+  TEAM
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  TRIALING
+}
+
+// Focus Sessions
+model FocusSession {
+  id                String        @id @default(cuid())
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type              SessionType
+  status            SessionStatus
+
+  plannedDuration   Int           // minutes
+  actualDuration    Int           @default(0)
+  startedAt         DateTime
+  endedAt           DateTime?
+  pausedAt          DateTime?
+  totalPauseDuration Int          @default(0)
+
+  taskId            String?
+  task              Task?         @relation(fields: [taskId], references: [id])
+  projectId         String?
+  tags              String[]
+
+  focusScore        Int?          // 0-100
+  distractionCount  Int           @default(0)
+
+  soundscapeId      String?
+  coworkingPartnerId String?
+
+  experienceEarned  Int           @default(0)
+  coinsEarned       Int           @default(0)
+
+  reflection        String?
+
+  plantedTreeId     String?       @unique
+  plantedTree       PlantedTree?
+
+  createdAt         DateTime      @default(now())
+}
+
+enum SessionType {
+  POMODORO_25
+  POMODORO_50
+  POMODORO_90
+  CUSTOM
+  FLOW_STATE
+  MICRO_FOCUS
+}
+
+enum SessionStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ABANDONED
+}
+
+// Garden System
+model Garden {
+  id            String        @id @default(cuid())
+  userId        String        @unique
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name          String        @default("My Garden")
+  theme         GardenTheme   @default(ZEN_GARDEN)
+
+  width         Int           @default(5)
+  height        Int           @default(5)
+
+  plantedTrees  PlantedTree[]
+  decorations   Json?
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+enum GardenTheme {
+  ZEN_GARDEN
+  FOREST
+  TROPICAL
+  DESERT
+  UNDERWATER
+  SPACE
+  PIXEL
+}
+
+model Plant {
+  id                  String      @id @default(cuid())
+  name                String
+  nameKo              String
+  description         String
+  rarity              PlantRarity
+
+  minFocusMinutes     Int         // min minutes to plant
+  growthStages        Int         @default(3)
+
+  experienceMultiplier Float      @default(1.0)
+  coinMultiplier      Float       @default(1.0)
+
+  spriteUrl           String
+
+  specialEffect       PlantEffect?
+
+  isPremium           Boolean     @default(false)
+  unlockLevel         Int         @default(1)
+  unlockCoins         Int         @default(0)
+
+  userPlants          UserPlant[]
+  plantedTrees        PlantedTree[]
+}
+
+enum PlantRarity {
+  COMMON
+  RARE
+  EPIC
+  LEGENDARY
+}
+
+enum PlantEffect {
+  FOCUS_BOOST
+  COIN_MAGNET
+  SHIELD
+  TIME_FREEZE
+  TEAM_AURA
+}
+
+model UserPlant {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plantId   String
+  plant     Plant    @relation(fields: [plantId], references: [id])
+
+  unlockedAt DateTime @default(now())
+  isSelected Boolean  @default(false)
+
+  @@unique([userId, plantId])
+}
+
+model PlantedTree {
+  id           String      @id @default(cuid())
+  gardenId     String
+  garden       Garden      @relation(fields: [gardenId], references: [id], onDelete: Cascade)
+  plantId      String
+  plant        Plant       @relation(fields: [plantId], references: [id])
+
+  sessionId    String      @unique
+  session      FocusSession @relation(fields: [sessionId], references: [id])
+
+  positionX    Int
+  positionY    Int
+
+  growthStage  Int         @default(1)
+  status       TreeStatus  @default(GROWING)
+
+  plantedAt    DateTime    @default(now())
+  grownAt      DateTime?
+}
+
+enum TreeStatus {
+  GROWING
+  GROWN
+  WITHERED
+}
+
+// Tasks & Projects
+model Task {
+  id               String       @id @default(cuid())
+  userId           String
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title            String
+  description      String?
+
+  projectId        String?
+  project          Project?     @relation(fields: [projectId], references: [id])
+  tags             String[]
+
+  estimatedMinutes Int?
+  actualMinutes    Int          @default(0)
+  deadline         DateTime?
+
+  status           TaskStatus   @default(TODO)
+  priority         TaskPriority @default(MEDIUM)
+
+  completedPomodoros Int        @default(0)
+
+  energyRequired   EnergyLevel  @default(MEDIUM)
+  cognitiveLoad    CognitiveLoad @default(MEDIUM)
+
+  focusSessions    FocusSession[]
+
+  createdAt        DateTime     @default(now())
+  completedAt      DateTime?
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  COMPLETED
+  ARCHIVED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum EnergyLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum CognitiveLoad {
+  SHALLOW
+  MEDIUM
+  DEEP
+}
+
+model Project {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name            String
+  color           String   @default("#22C55E")
+  icon            String   @default("folder")
+
+  deadline        DateTime?
+
+  tasks           Task[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Goals
+model Goal {
+  id          String     @id @default(cuid())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  type        GoalType
+
+  period      GoalPeriod
+  startDate   DateTime
+  endDate     DateTime
+
+  targetMetric GoalMetric
+  targetValue Int
+  currentValue Int        @default(0)
+
+  status      GoalStatus @default(ACTIVE)
+
+  createdAt   DateTime   @default(now())
+  completedAt DateTime?
+}
+
+enum GoalType {
+  FOCUS_TIME
+  SESSIONS
+  STREAK
+  TASK_COMPLETION
+  PROJECT_MILESTONE
+}
+
+enum GoalPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+  CUSTOM
+}
+
+enum GoalMetric {
+  MINUTES
+  SESSIONS
+  DAYS
+  TASKS
+  PERCENTAGE
+}
+
+enum GoalStatus {
+  ACTIVE
+  COMPLETED
+  FAILED
+  PAUSED
+}
+
+// Achievements
+model Achievement {
+  id          String   @id @default(cuid())
+  name        String
+  nameKo      String
+  description String
+  icon        String
+
+  type        AchievementType
+  requirement Int
+
+  experienceReward Int @default(0)
+  coinReward      Int @default(0)
+
+  users       UserAchievement[]
+}
+
+enum AchievementType {
+  TOTAL_FOCUS_MINUTES
+  TOTAL_SESSIONS
+  STREAK_DAYS
+  TREES_PLANTED
+  TREES_GROWN
+  TASKS_COMPLETED
+  LEVEL_REACHED
+}
+
+model UserAchievement {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id])
+
+  unlockedAt    DateTime    @default(now())
+
+  @@unique([userId, achievementId])
+}
+
+// User Stats
+model UserStats {
+  id                   String @id @default(cuid())
+  userId               String @unique
+  user                 User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  totalFocusMinutes    Int    @default(0)
+  totalSessions        Int    @default(0)
+  completedSessions    Int    @default(0)
+  abandonedSessions    Int    @default(0)
+
+  totalTreesPlanted    Int    @default(0)
+  totalTreesGrown      Int    @default(0)
+  totalTreesWithered   Int    @default(0)
+
+  totalTasksCompleted  Int    @default(0)
+
+  level                Int    @default(1)
+  experience           Int    @default(0)
+  coins                Int    @default(0)
+
+  avgFocusScore        Float  @default(0)
+  longestSession       Int    @default(0)
+
+  updatedAt            DateTime @updatedAt
+}
+
+model UserStreak {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  currentStreak Int      @default(0)
+  longestStreak Int      @default(0)
+
+  lastActiveDate DateTime?
+
+  updatedAt     DateTime @updatedAt
+}
+
+// User Settings
+model UserSettings {
+  id                      String  @id @default(cuid())
+  userId                  String  @unique
+  user                    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Timer defaults
+  defaultWorkDuration     Int     @default(25)
+  defaultShortBreak       Int     @default(5)
+  defaultLongBreak        Int     @default(15)
+  sessionsBeforeLongBreak Int     @default(4)
+
+  // Automation
+  autoStartBreaks         Boolean @default(false)
+  autoStartNextSession    Boolean @default(false)
+
+  // Strict mode
+  strictMode              Boolean @default(false)
+  strictModeGracePeriod   Int     @default(10)
+
+  // Notifications
+  soundEnabled            Boolean @default(true)
+  vibrationEnabled        Boolean @default(true)
+  notificationSound       String  @default("bell")
+
+  // Goals
+  dailySessionGoal        Int     @default(8)
+  dailyFocusMinuteGoal    Int     @default(200)
+
+  // Theme
+  theme                   String  @default("system")
+
+  updatedAt               DateTime @updatedAt
+}
+
+// Soundscapes
+model Soundscape {
+  id          String         @id @default(cuid())
+  name        String
+  nameKo      String
+  category    SoundCategory
+
+  audioUrl    String
+  thumbnailUrl String?
+
+  duration    Int?           // minutes, null for loops
+  isLoop      Boolean        @default(true)
+
+  isPremium   Boolean        @default(false)
+
+  usageCount  Int            @default(0)
+  avgFocusScore Float        @default(0)
+}
+
+enum SoundCategory {
+  NATURE
+  AMBIENT
+  MUSIC
+  BINAURAL
+  WHITE_NOISE
+  ASMR
+}
